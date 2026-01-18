@@ -7,9 +7,11 @@ from django.db import IntegrityError
 from django.utils import timezone
 from django.forms import inlineformset_factory, widgets
 from django.http import HttpResponse
-from django.template.loader import get_template
-from xhtml2pdf import pisa
 from io import BytesIO
+
+# --- ÚNICA IMPORTACIÓN PARA EL PDF (REPORTLAB) ---
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import LETTER
 
 # Modelos y Formularios
 from .models import Task, DatosPersonales, ExperienciaLaboral, Curso, ProductoLaboral, ProductoAcademico, Recomendacion
@@ -84,10 +86,8 @@ def hoja_vida(request):
 
 @login_required
 def editar_perfil(request):
-    # Obtenemos o creamos el perfil del usuario actual
     perfil, created = DatosPersonales.objects.get_or_create(user=request.user)
     
-    # 1. Fábrica de Experiencia Laboral (con widgets de fecha)
     ExperienciaFormSet = inlineformset_factory(
         DatosPersonales, ExperienciaLaboral, 
         fields=['nombre_empresa', 'cargo_desempenado', 'fecha_inicio', 'fecha_fin'], 
@@ -98,28 +98,10 @@ def editar_perfil(request):
         extra=1, can_delete=True
     )
     
-    # 2. Fábrica de Cursos
-    CursoFormSet = inlineformset_factory(
-        DatosPersonales, Curso, 
-        fields=['nombre_curso', 'institucion', 'horas'], 
-        extra=1, can_delete=True
-    )
+    CursoFormSet = inlineformset_factory(DatosPersonales, Curso, fields=['nombre_curso', 'institucion', 'horas'], extra=1, can_delete=True)
+    ProdLabFormSet = inlineformset_factory(DatosPersonales, ProductoLaboral, fields=['nombre_producto', 'descripcion'], extra=1, can_delete=True)
+    ProdAcadFormSet = inlineformset_factory(DatosPersonales, ProductoAcademico, fields=['nombre_recurso', 'descripcion'], extra=1, can_delete=True)
 
-    # 3. NUEVO: Fábrica de Proyectos Laborales
-    ProdLabFormSet = inlineformset_factory(
-        DatosPersonales, ProductoLaboral, 
-        fields=['nombre_producto', 'descripcion'], 
-        extra=1, can_delete=True
-    )
-    
-    # 4. NUEVO: Fábrica de Proyectos Académicos
-    ProdAcadFormSet = inlineformset_factory(
-        DatosPersonales, ProductoAcademico, 
-        fields=['nombre_recurso', 'descripcion'], 
-        extra=1, can_delete=True
-    )
-
-   # AQUÍ ES DONDE AGREGAS EL BLOQUE QUE ME PASASTE
     if request.method == 'POST':
         form = PerfilForm(request.POST, request.FILES, instance=perfil)
         formset_exp = ExperienciaFormSet(request.POST, instance=perfil)
@@ -127,43 +109,20 @@ def editar_perfil(request):
         formset_lab = ProdLabFormSet(request.POST, instance=perfil)
         formset_acad = ProdAcadFormSet(request.POST, instance=perfil)
         
-        # Guardamos en una variable si TODO es válido
-        is_valid = all([
-            form.is_valid(),
-            formset_exp.is_valid(),
-            formset_cur.is_valid(),
-            formset_lab.is_valid(),
-            formset_acad.is_valid()
-        ])
+        is_valid = all([form.is_valid(), formset_exp.is_valid(), formset_cur.is_valid(), formset_lab.is_valid(), formset_acad.is_valid()])
 
         if is_valid:
-            # Guardamos el perfil principal
             perfil_obj = form.save()
-            
-            # Guardamos cada formset asegurando la relación con el perfil
             formset_exp.instance = perfil_obj
             formset_exp.save()
-            
             formset_cur.instance = perfil_obj
             formset_cur.save()
-            
             formset_lab.instance = perfil_obj
             formset_lab.save()
-            
             formset_acad.instance = perfil_obj
             formset_acad.save()
-            
-            return redirect('hoja_vida') # Si todo sale bien, te manda a tu CV
-        else:
-            # Si algo falla, la terminal te dirá la verdad
-            print("--- ERRORES DETECTADOS ---")
-            print("Perfil:", form.errors)
-            print("Exp:", formset_exp.errors)
-            print("Cur:", formset_cur.errors)
-            print("Lab:", formset_lab.errors)
-            print("Acad:", formset_acad.errors)
+            return redirect('hoja_vida')
     else:
-        # Carga inicial para mostrar los datos que ya existen
         form = PerfilForm(instance=perfil)
         formset_exp = ExperienciaFormSet(instance=perfil)
         formset_cur = CursoFormSet(instance=perfil)
@@ -171,29 +130,58 @@ def editar_perfil(request):
         formset_acad = ProdAcadFormSet(instance=perfil)
 
     return render(request, 'editar_perfil.html', {
-        'form': form,
-        'formset_exp': formset_exp,
-        'formset_cur': formset_cur,
-        'formset_lab': formset_lab,
-        'formset_acad': formset_acad
+        'form': form, 'formset_exp': formset_exp, 'formset_cur': formset_cur,
+        'formset_lab': formset_lab, 'formset_acad': formset_acad
     })
 
-
+# --- FUNCIÓN DE DESCARGA PDF RECONSTRUIDA PARA REPORTLAB ---
+@login_required
 def descargar_cv_pdf(request):
-    # 1. Buscamos la plantilla
-    template = get_template('perfil.html') # Asegúrate que este sea el nombre de tu archivo
-    context = {'user': request.user}
-    html = template.render(context)
+    perfil = DatosPersonales.objects.filter(user=request.user).first()
+    experiencias = ExperienciaLaboral.objects.filter(datos_personales=perfil)
     
-    # 2. Creamos el PDF en memoria
-    result = BytesIO()
-    pdf = pisa.pisaDocument(BytesIO(html.encode("UTF-8")), result)
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer, pagesize=LETTER)
     
-    # 3. Si no hubo errores, mandamos el archivo
-    if not pdf.err:
-        return HttpResponse(result.getvalue(), content_type='application/pdf')
+    # Dibujando el CV
+    p.setFont("Helvetica-Bold", 20)
+    p.drawString(100, 750, "HOJA DE VIDA")
     
-    return HttpResponse("Error al generar el PDF", status=400)
+    p.setFont("Helvetica-Bold", 14)
+    nombre = f"{perfil.nombres} {perfil.apellidos}" if perfil else request.user.username
+    p.drawString(100, 725, nombre.upper())
+    p.line(100, 720, 500, 720)
+    
+    p.setFont("Helvetica", 11)
+    y = 690
+    if perfil:
+        p.drawString(100, y, f"Email: {request.user.email}")
+        y -= 20
+        p.drawString(100, y, f"Teléfono: {perfil.telefono}")
+        y -= 40
+
+    p.setFont("Helvetica-Bold", 13)
+    p.drawString(100, y, "EXPERIENCIA LABORAL")
+    y -= 20
+    
+    p.setFont("Helvetica", 11)
+    for exp in experiencias:
+        p.drawString(100, y, f"• {exp.cargo_desempenado} en {exp.nombre_empresa}")
+        y -= 15
+        p.setFont("Helvetica-Oblique", 9)
+        p.drawString(115, y, f"({exp.fecha_inicio} a {exp.fecha_fin})")
+        y -= 25
+        p.setFont("Helvetica", 11)
+        if y < 100:
+            p.showPage()
+            y = 750
+
+    p.showPage()
+    p.save()
+    
+    buffer.seek(0)
+    return HttpResponse(buffer, content_type='application/pdf', 
+                        headers={'Content-Disposition': 'attachment; filename="CV_AlexDev.pdf"'})
 
 def helloworld(request):
     return render(request, 'helloworld.html')
