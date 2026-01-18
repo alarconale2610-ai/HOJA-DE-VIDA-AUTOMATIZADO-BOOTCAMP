@@ -136,57 +136,63 @@ def editar_perfil(request):
 
 @login_required
 def descargar_cv_pdf(request):
-    # 1. Traemos los datos (usando los nombres de campos que SÍ existen) 
+    # 1. Buscamos el perfil del usuario actual
     perfil = DatosPersonales.objects.filter(user=request.user).first()
+    
+    # 2. Obtenemos datos relacionados usando los nombres de campos de models.py
     experiencias = ExperienciaLaboral.objects.filter(perfil=perfil)
     cursos = Curso.objects.filter(perfil=perfil)
     
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=LETTER)
     
-    # --- Dibujando el CV ---
+    # --- Estilo y Contenido del PDF ---
     p.setFont("Helvetica-Bold", 20)
-    p.drawString(100, 750, "HOJA DE VIDA")
+    p.drawString(100, 750, "CURRÍCULUM VITAE")
     
     p.setFont("Helvetica-Bold", 14)
-    nombre = f"{perfil.nombres} {perfil.apellidos}" if perfil else request.user.username
-    p.drawString(100, 725, nombre.upper())
+    # Mostramos nombres y apellidos del modelo
+    nombre_completo = f"{perfil.nombres} {perfil.apellidos}" if perfil else request.user.username
+    p.drawString(100, 725, nombre_completo.upper())
     p.line(100, 720, 500, 720)
     
     p.setFont("Helvetica", 11)
     y = 690
+    
     if perfil:
         p.drawString(100, y, f"Email: {request.user.email}")
         y -= 20
-        p.drawString(100, y, f"Teléfono: {perfil.telefono}")
+        # Usamos 'cedula' porque no hay campo 'telefono' en tu modelo
+        p.drawString(100, y, f"Cédula: {perfil.cedula}")
         y -= 20
-        p.drawString(100, y, f"Ubicación: {perfil.direccion}")
+        # Usamos 'direccion_domiciliaria' que es el nombre correcto
+        p.drawString(100, y, f"Ubicación: {perfil.direccion_domiciliaria}")
         y -= 40
 
-    # Experiencia Laboral
-    p.setFont("Helvetica-Bold", 13)
-    p.drawString(100, y, "EXPERIENCIA LABORAL")
-    y -= 20
-    
-    p.setFont("Helvetica", 11)
-    for exp in experiencias:
-        p.drawString(100, y, f"• {exp.cargo_desempenado} en {exp.nombre_empresa}")
-        y -= 15
-        p.setFont("Helvetica-Oblique", 9)
-        p.drawString(115, y, f"({exp.fecha_inicio} a {exp.fecha_fin})")
-        y -= 25
-        if y < 100:
-            p.showPage()
-            y = 750
-
-    # Cursos
-    y -= 10
-    p.setFont("Helvetica-Bold", 13)
-    p.drawString(100, y, "CURSOS Y FORMACIÓN")
-    y -= 20
-    for c in cursos:
-        p.drawString(100, y, f"• {c.nombre_curso} ({c.institucion}) - {c.horas}h")
+        # Sección de Experiencia Laboral
+        p.setFont("Helvetica-Bold", 13)
+        p.drawString(100, y, "EXPERIENCIA LABORAL")
         y -= 20
+        p.setFont("Helvetica", 11)
+        for exp in experiencias:
+            p.drawString(100, y, f"• {exp.cargo_desempenado} en {exp.nombre_empresa}")
+            y -= 15
+            p.setFont("Helvetica-Oblique", 9)
+            p.drawString(115, y, f"({exp.fecha_inicio} a {exp.fecha_fin})")
+            y -= 25
+            if y < 100: # Control de salto de página
+                p.showPage()
+                y = 750
+
+        # Sección de Cursos
+        y -= 10
+        p.setFont("Helvetica-Bold", 13)
+        p.drawString(100, y, "CURSOS Y FORMACIÓN")
+        y -= 20
+        p.setFont("Helvetica", 11)
+        for c in cursos:
+            p.drawString(100, y, f"• {c.nombre_curso} ({c.institucion}) - {c.horas}h")
+            y -= 20
 
     p.showPage()
     p.save()
