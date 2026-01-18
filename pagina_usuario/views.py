@@ -160,8 +160,7 @@ def descargar_cv_pdf(request):
     y = 690
     
     if perfil:
-        p.drawString(100, y, f"Email: {request.user.email}")
-        y -= 20
+
         # Usamos 'cedula' porque no hay campo 'telefono' en tu modelo
         p.drawString(100, y, f"Cédula: {perfil.cedula}")
         y -= 20
@@ -196,10 +195,22 @@ def descargar_cv_pdf(request):
 
     p.showPage()
     p.save()
-    
     buffer.seek(0)
-    return HttpResponse(buffer, content_type='application/pdf', 
-                        headers={'Content-Disposition': 'attachment; filename="CV_Alexander_Alarcon.pdf"'})
+
+    # --- NOMBRE DINÁMICO ---
+    if perfil and perfil.nombres and perfil.apellidos:
+        # Reemplazamos espacios por guiones bajos para que el nombre del archivo sea limpio
+        nombre_limpio = f"{perfil.nombres}_{perfil.apellidos}".replace(" ", "_")
+        nombre_archivo = f"CV_{nombre_limpio}.pdf"
+    else:
+        # Si no tiene perfil, usamos su nombre de usuario de Django
+        nombre_archivo = f"CV_{request.user.username}.pdf"
+
+    return HttpResponse(
+        buffer, 
+        content_type='application/pdf', 
+        headers={'Content-Disposition': f'attachment; filename="{nombre_archivo}"'}
+    )
 
 def helloworld(request):
     return render(request, 'helloworld.html')
