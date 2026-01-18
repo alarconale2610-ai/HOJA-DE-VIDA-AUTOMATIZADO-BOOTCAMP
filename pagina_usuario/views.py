@@ -9,7 +9,7 @@ from django.forms import inlineformset_factory, widgets
 from django.http import HttpResponse
 from io import BytesIO
 
-# --- ÚNICA IMPORTACIÓN PARA EL PDF (REPORTLAB) ---
+# --- IMPORTACIONES PARA EL PDF (REPORTLAB) ---
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import LETTER
 
@@ -134,12 +134,10 @@ def editar_perfil(request):
         'formset_lab': formset_lab, 'formset_acad': formset_acad
     })
 
-# --- FUNCIÓN DE DESCARGA PDF RECONSTRUIDA PARA REPORTLAB ---
 @login_required
 def descargar_cv_pdf(request):
-    # 1. Traemos los datos (usando los nombres de campos correctos)
+    # 1. Traemos los datos (usando los nombres de campos que SÍ existen) 
     perfil = DatosPersonales.objects.filter(user=request.user).first()
-    # CAMBIO AQUÍ: Usamos 'perfil' en lugar de 'datos_personales'
     experiencias = ExperienciaLaboral.objects.filter(perfil=perfil)
     cursos = Curso.objects.filter(perfil=perfil)
     
